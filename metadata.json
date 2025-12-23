@@ -1,0 +1,8 @@
+{
+  "name": "掼蛋设备智能管理平台",
+  "description": "专业级掼蛋发牌设备服务端管理系统，支持多达200台设备的实时监控与远程控制。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
