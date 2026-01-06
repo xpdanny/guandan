@@ -1,8 +1,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Device, DeviceStatus, DeviceConfig, Group } from '../types';
+import { Device, DeviceStatus, DeviceConfig, Group, getSignalLevel } from '../types';
 import { ICONS } from '../constants';
 import ControlPanel from './ControlPanel';
+import { DeviceBinding } from './DeviceBinding';
+import { PendingCommands } from './PendingCommands';
 
 interface DashboardProps {
   devices: Device[];
@@ -10,14 +12,38 @@ interface DashboardProps {
   onUpdateDevices: (ids: string[], config: Partial<Device>) => void;
   onAddGroup: (name: string, deviceIds: string[]) => void;
   onUpdateGroupName: (id: string, name: string) => void;
+  onAddDevices?: (devices: { sn: string; key: string }[]) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices, onAddGroup, onUpdateGroupName }) => {
+// 信号强度图标组件
+const SignalIcon: React.FC<{ strength: number }> = ({ strength }) => {
+  const level = getSignalLevel(strength);
+  const bars = level === 'excellent' ? 4 : level === 'good' ? 3 : level === 'fair' ? 2 : 1;
+  
+  return (
+    <div className="flex items-end gap-0.5 h-3" title={`信号强度: ${strength} dBm`}>
+      {[1, 2, 3, 4].map(i => (
+        <div
+          key={i}
+          className={`w-1 rounded-sm ${i <= bars ? 'bg-green-500' : 'bg-gray-300'}`}
+          style={{ height: `${i * 25}%` }}
+        />
+      ))}
+    </div>
+  );
+};
+
+const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices, onAddGroup, onUpdateGroupName, onAddDevices }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set());
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<DeviceStatus | 'ALL'>('ALL');
   const [activeGroupId, setActiveGroupId] = useState<string | 'ALL'>('ALL');
+  
+  // 新增状态
+  const [showDeviceBinding, setShowDeviceBinding] = useState(false);
+  const [showPendingCommands, setShowPendingCommands] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   // Marquee Selection State
   const [isSelecting, setIsSelecting] = useState(false);
@@ -156,8 +182,81 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices,
     }
   };
 
+  // 处理设备绑定成功
+  const handleBindingSuccess = (newDevices: { sn: string; key: string }[]) => {
+    if (onAddDevices) {
+      onAddDevices(newDevices);
+    }
+    setShowDeviceBinding(false);
+  };
+
+  // 检查选中设备中是否有离线设备
+  const hasOfflineSelected = useMemo(() => {
+    return Array.from(selectedDevices).some(id => {
+      const device = devices.find(d => d.id === id);
+      return device?.status === DeviceStatus.OFFLINE;
+    });
+  }, [selectedDevices, devices]);
+
+  // 统计在线/离线设备数量
+  const deviceStats = useMemo(() => {
+    const online = devices.filter(d => d.status === DeviceStatus.ONLINE || d.status === DeviceStatus.BUSY).length;
+    const offline = devices.filter(d => d.status === DeviceStatus.OFFLINE).length;
+    const error = devices.filter(d => d.status === DeviceStatus.ERROR).length;
+    return { online, offline, error, total: devices.length };
+  }, [devices]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+      {/* 顶部统计栏 */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-indigo-200 text-sm">设备总数</span>
+            <span className="text-xl font-bold">{deviceStats.total}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+            <span className="text-sm">在线 {deviceStats.online}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+            <span className="text-sm">离线 {deviceStats.offline}</span>
+          </div>
+          {deviceStats.error > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+              <span className="text-sm">故障 {deviceStats.error}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {/* 待同步指令按钮 */}
+          <button
+            onClick={() => setShowPendingCommands(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            待同步
+            {pendingCount > 0 && (
+              <span className="bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+            )}
+          </button>
+          {/* 添加设备按钮 */}
+          <button
+            onClick={() => setShowDeviceBinding(true)}
+            className="flex items-center gap-2 px-4 py-1.5 bg-white text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors text-sm font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            添加设备
+          </button>
+        </div>
+      </div>
+
       {/* Group Sidebar/Header */}
       <div className="bg-white border-b px-6 py-3 flex items-center gap-4 overflow-x-auto no-scrollbar">
         <button
@@ -255,15 +354,22 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices,
 
         {/* Device Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 select-none">
-          {filteredDevices.map(device => (
+          {filteredDevices.map(device => {
+            const isOffline = device.status === DeviceStatus.OFFLINE;
+            const signalStrength = device.connection?.signalStrength ?? -80;
+            
+            return (
             <div
               key={device.id}
               ref={el => { if (el) cardRefs.current.set(device.id, el); else cardRefs.current.delete(device.id); }}
               onClick={(e) => toggleSelect(e, device.id)}
               className={`relative group bg-white rounded-xl border-2 p-3 transition-all ${
+                isOffline ? 'opacity-60' : ''
+              } ${
                 selectedDevices.has(device.id) ? 'border-indigo-500 shadow-md ring-2 ring-indigo-50' : 'border-gray-100 hover:border-indigo-200 shadow-sm'
               }`}
             >
+              {/* 选中标记 */}
               {selectedDevices.has(device.id) && (
                 <div className="absolute -top-2 -right-2 bg-indigo-500 text-white rounded-full p-1 shadow-lg z-10">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -272,18 +378,35 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices,
                 </div>
               )}
               
-              <div className="flex justify-between items-start mb-2">
+              {/* 在线状态指示灯 */}
+              <div className={`absolute top-2 left-2 w-2 h-2 rounded-full ${
+                device.status === DeviceStatus.ONLINE ? 'bg-green-500 animate-pulse' :
+                device.status === DeviceStatus.BUSY ? 'bg-amber-500 animate-pulse' :
+                device.status === DeviceStatus.ERROR ? 'bg-red-500' :
+                'bg-gray-400'
+              }`} title={device.status === DeviceStatus.OFFLINE ? '设备离线' : '设备在线'}></div>
+              
+              <div className="flex justify-between items-start mb-2 pl-4">
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase ${getStatusColor(device.status)}`}>
-                  {device.status === DeviceStatus.ONLINE ? '在线' : (device.status === DeviceStatus.BUSY ? '发牌中' : '离线')}
+                  {device.status === DeviceStatus.ONLINE ? '在线' : 
+                   device.status === DeviceStatus.BUSY ? '发牌中' : 
+                   device.status === DeviceStatus.ERROR ? '故障' : '离线'}
                 </span>
-                <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                  <ICONS.Battery />
-                  {device.battery}%
+                <div className="flex items-center gap-2">
+                  {/* 5G信号强度 */}
+                  {!isOffline && device.connection && (
+                    <SignalIcon strength={signalStrength} />
+                  )}
+                  {/* 电池电量 */}
+                  <div className="flex items-center gap-1 text-[10px] text-gray-500">
+                    <ICONS.Battery />
+                    {device.battery}%
+                  </div>
                 </div>
               </div>
 
               <div className="text-center py-2">
-                <p className="text-xs font-mono text-gray-400 mb-1">{device.id}</p>
+                <p className="text-xs font-mono text-gray-400 mb-1">{device.sn || device.id}</p>
                 <h3 className="font-bold text-gray-800 text-sm truncate">{device.name}</h3>
                 {device.groupId && (
                   <p className="text-[9px] text-indigo-500 font-bold mt-1">
@@ -302,8 +425,16 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices,
                     <span className="text-xs font-bold text-indigo-600">{device.currentRound}/{device.config.gameRounds}</span>
                  </div>
               </div>
+              
+              {/* 离线遮罩提示 */}
+              {isOffline && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded shadow">设备离线</span>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -378,7 +509,61 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, groups, onUpdateDevices,
           selectedCount={selectedDevices.size}
           onApply={handleApplyConfig}
           onCancel={() => setIsPanelOpen(false)}
+          hasOfflineDevices={hasOfflineSelected}
         />
+      )}
+
+      {/* 设备绑定弹窗 */}
+      {showDeviceBinding && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-2xl">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-bold">添加设备</h2>
+              <button
+                onClick={() => setShowDeviceBinding(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <DeviceBinding
+                onBindSuccess={handleBindingSuccess}
+                onClose={() => setShowDeviceBinding(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 待执行指令弹窗 */}
+      {showPendingCommands && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-2xl">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-bold">待执行指令队列</h2>
+              <button
+                onClick={() => setShowPendingCommands(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <PendingCommands
+                onCountChange={setPendingCount}
+                onRetry={async (cmd) => {
+                  // TODO: 重新发送指令到设备
+                  console.log('Retry command:', cmd);
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

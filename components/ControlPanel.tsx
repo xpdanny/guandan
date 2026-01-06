@@ -7,9 +7,10 @@ interface ControlPanelProps {
   selectedCount: number;
   onApply: (config: DeviceConfig) => void;
   onCancel: () => void;
+  hasOfflineDevices?: boolean;
 }
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ selectedCount, onApply, onCancel }) => {
+const ControlPanel: React.FC<ControlPanelProps> = ({ selectedCount, onApply, onCancel, hasOfflineDevices = false }) => {
   const [config, setConfig] = useState<DeviceConfig>(INITIAL_CONFIG);
 
   const handleChange = (key: keyof DeviceConfig, value: any) => {
@@ -30,6 +31,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ selectedCount, onApply, onC
 
         <div className="bg-blue-50 p-3 rounded-lg mb-6">
           <p className="text-sm text-blue-700 font-medium">已选择设备：{selectedCount} 台</p>
+          {hasOfflineDevices && (
+            <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              包含离线设备，指令将暂存等待设备上线
+            </p>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -157,7 +166,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ selectedCount, onApply, onC
             onClick={() => onApply(config)}
             className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-indigo-700 shadow-lg transition-all active:scale-95"
           >
-            应用设置并执行
+            {hasOfflineDevices ? '应用设置（离线设备将暂存）' : '应用设置并执行'}
           </button>
           <button
             onClick={onCancel}

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>缓存覆盖策略测试 - Guandan</title>
+  <style>body{font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:20px}button{padding:8px 12px;margin-right:8px}pre{background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;max-height:400px;overflow:auto}</style>
+</head>
+<body>
+  <h2>离线指令缓存覆盖策略测试</h2>
+  <p>此页面在浏览器中直接运行，使用与应用相同的 IndexedDB schema（<code>guandan_offline_db</code> / <code>pending_commands</code>），演示“同设备+同类型只保留最后一条”策略。</p>
+
+  <div style="margin:12px 0">
+    <button id="run">运行测试</button>
+    <button id="clear">清空所有缓存</button>
+  </div>
+
+  <div>
+    <strong>日志输出</strong>
+    <pre id="log">等待运行...</pre>
+  </div>
+
+<script>
+const DB_NAME = 'guandan_offline_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'pending_commands';
+const logEl = document.getElementById('log');
+function log(...args){ logEl.textContent += '\n' + args.map(a=> typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' '); logEl.scrollTop = logEl.scrollHeight; }
+
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains(STORE_NAME)){
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('deviceId', 'deviceId', { unique: false });
+        store.createIndex('commandType', 'commandType', { unique: false });
+        store.createIndex('deviceId_commandType', ['deviceId','commandType'], { unique: true });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('cachedAt', 'cachedAt', { unique: false });
+      }
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+async function cacheCommand(db, deviceId, commandType, commandPayload){
+  const tx = db.transaction([STORE_NAME], 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const index = store.index('deviceId_commandType');
+
+  return new Promise((resolve,reject)=>{
+    const g = index.get([deviceId, commandType]);
+    g.onsuccess = ()=>{
+      const existing = g.result;
+      const id = existing?.id || `${deviceId}_${commandType}_${Date.now()}`;
+      const cached = { id, deviceId, commandType, command: commandPayload, cachedAt: Date.now(), status: 'pending' };
+      const p = store.put(cached);
+      p.onsuccess = ()=>{ log('缓存完成:', cached); resolve(cached); };
+      p.onerror = ()=>{ log('缓存失败:', p.error); reject(p.error); };
+    };
+    g.onerror = ()=> reject(g.error);
+  });
+}
+
+async function getAllPending(db){
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction([STORE_NAME],'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.getAll();
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+async function clearAll(db){
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction([STORE_NAME],'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.clear();
+    req.onsuccess = ()=> resolve();
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+document.getElementById('run').addEventListener('click', async ()=>{
+  logEl.textContent = '运行中...';
+  try{
+    const db = await openDB();
+    log('数据库已打开');
+
+    const deviceId = 'GD_TEST_0001';
+    const cmdType = 'CONFIG_UPDATE';
+
+    // 第一次缓存
+    await cacheCommand(db, deviceId, cmdType, { seq: 1, payload: { playerCount: 4 } });
+    // 第二次缓存（同设备同类型，应覆盖）
+    await new Promise(r=>setTimeout(r, 200));
+    await cacheCommand(db, deviceId, cmdType, { seq: 2, payload: { playerCount: 8 } });
+
+    // 再缓存另一个类型
+    await new Promise(r=>setTimeout(r, 200));
+    await cacheCommand(db, deviceId, 'EMERGENCY_STOP', { seq: 3 });
+
+    // 查询结果
+    const all = await getAllPending(db);
+    log('\n所有缓存记录：', all);
+
+    // 断言检查（页面上展示）
+    const sameType = all.filter(a => a.deviceId===deviceId && a.commandType===cmdType);
+    log(`\n同设备同类型 (${cmdType}) 的数量: ${sameType.length}`);
+    if(sameType.length===1){
+      log('验证通过：仅保留最后一条覆盖后的指令：', sameType[0]);
+    } else {
+      log('验证失败：存在多条同类型指令', sameType);
+    }
+
+  }catch(e){
+    log('测试异常:', e);
+  }
+});
+
+document.getElementById('clear').addEventListener('click', async ()=>{
+  try{
+    const db = await openDB();
+    await clearAll(db);
+    log('已清空所有缓存');
+  }catch(e){ log('清空失败', e); }
+});
+
+</script>
+</body>
+</html>

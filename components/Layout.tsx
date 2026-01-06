@@ -89,9 +89,31 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, activeTab, se
         <div className="flex-1 overflow-y-auto">
           {children}
         </div>
+
+        {/* Message Inspector (底部) */}
+        <div className="flex-shrink-0">
+          {/* 延迟加载，避免 SSR/环境问题 */}
+          <React.Suspense fallback={null}>
+            <MessageInspectorWrapper />
+          </React.Suspense>
+        </div>
       </main>
     </div>
   );
 };
 
 export default Layout;
+
+// 包装以延迟导入 MessageInspector，避免模块循环
+const MessageInspectorWrapper: React.FC = () => {
+  const [Loaded, setLoaded] = React.useState<React.FC | null>(null);
+  React.useEffect(() => {
+    let mounted = true;
+    import('./MessageInspector').then(mod => { if (mounted) setLoaded(() => mod.default); }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
+  if (!Loaded) return null;
+  const Cmp = Loaded;
+  return <Cmp />;
+};

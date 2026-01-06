@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>发牌机模拟器 - Guandan</title>
+  <style>
+    body{font-family:Inter,Segoe UI,Roboto,Arial;margin:18px;background:#f8fafc;color:#0f172a}
+    label{display:block;margin-top:8px;font-size:13px}
+    input,select,textarea,button{padding:8px;border:1px solid #e6eef8;border-radius:6px}
+    .row{display:flex;gap:8px;align-items:center}
+    .col{display:flex;flex-direction:column}
+    .panel{background:white;padding:12px;border-radius:8px;box-shadow:0 6px 20px rgba(2,6,23,0.06);margin-bottom:12px}
+    .log{background:#0b1220;color:#e6eef8;padding:12px;border-radius:6px;height:280px;overflow:auto;font-family:monospace;font-size:13px}
+    .btn{cursor:pointer}
+    .grid{display:grid;grid-template-columns:1fr 420px;gap:12px}
+    .small{font-size:12px;color:#64748b}
+  </style>
+</head>
+<body>
+  <h1>掼蛋发牌机 模拟器</h1>
+  <p class="small">此页面用于在前端模拟设备向平台发送心跳、状态、指令回执、文件上传等行为，可通过 WebSocket 或 HTTP 模拟真实设备上报。</p>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h3>设备信息</h3>
+        <label>SN (设备序列号)
+          <input id="sn" value="GD20251224001" />
+        </label>
+        <label>Key (设备秘钥，模拟)</label>
+        <input id="key" value="a1b2c3d4e5f6g7h8" />
+
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <div style="flex:1">
+            <label>HTTP 基础地址</label>
+            <input id="httpBase" value="http://localhost:3000/api" />
+          </div>
+          <div style="width:220px">
+            <label>WebSocket 地址</label>
+            <input id="wsUrl" value="ws://localhost:3000/ws" />
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button id="connectWs" class="btn">连接 WebSocket</button>
+          <button id="disconnectWs" class="btn">断开 WS</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>心跳 & 自动上报</h3>
+        <div class="row">
+          <label style="width:110px">间隔 (秒)</label>
+          <input id="hbInterval" type="number" value="30" style="width:80px" />
+          <button id="startHbeat">开始心跳</button>
+          <button id="stopHbeat">停止心跳</button>
+        </div>
+
+        <div style="margin-top:8px">
+          <label>信号强度 (dBm)</label>
+          <input id="signal" value="-65" />
+          <label>电量 (%)</label>
+          <input id="battery" value="85" />
+        </div>
+      </div>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>发牌机模拟器 - Guandan (批量/单步)</title>
+  <style>
+    body{font-family:Inter,Segoe UI,Roboto,Arial;margin:12px;background:#f8fafc;color:#0f172a}
+    .panel{background:white;padding:10px;border-radius:8px;box-shadow:0 6px 20px rgba(2,6,23,0.06);margin-bottom:12px}
+    .flex{display:flex;gap:8px}
+    .col{display:flex;flex-direction:column}
+    .log{background:#0b1220;color:#e6eef8;padding:12px;border-radius:6px;height:220px;overflow:auto;font-family:monospace;font-size:13px}
+    .devices{height:680px;overflow:auto;border:1px solid #eef2ff;border-radius:6px;padding:8px}
+    .device-row{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px dashed #f1f5f9;border-radius:4px;background:#fafbfc;transition:background 0.2s}
+    .device-row:hover{background:#f0f4ff}
+    .device-row.expanded{background:#f0f4ff;border:1px solid #eef2ff;flex-direction:column;align-items:flex-start}
+    .device-controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;width:100%;margin-top:8px}
+    .device-control-btn{padding:6px 10px;border-radius:4px;border:1px solid #dfe8f3;background:#fff;cursor:pointer;font-size:12px;transition:background 0.2s}
+    .device-control-btn:hover{background:#f0f4ff}
+    .btn{padding:6px 10px;border-radius:6px;border:1px solid #e6eef8;background:#fff;cursor:pointer}
+    .primary{background:#4f46e5;color:#fff;border-color:#4f46e5}
+    .small{font-size:12px;color:#64748b}
+    .grid{display:grid;grid-template-columns:360px 1fr;gap:12px}
+    textarea{width:100%;height:180px;border:1px solid #e6eef8;border-radius:6px;padding:8px;font-family:monospace}
+    select,input[type="number"]{padding:6px;border:1px solid #e6eef8;border-radius:4px;font-size:12px}
+  </style>
+</head>
+<body>
+  <h2>发牌机 多设备模拟器（200 台）</h2>
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="flex" style="justify-content:space-between;align-items:center">
+          <div class="col">
+            <strong>设备列表（展开查看每台的控制按钮）</strong>
+            <div class="small">暂停/开始、人数、牌数、难易程度、状态</div>
+          </div>
+          <div>
+            <button id="selectAll" class="btn">全选</button>
+            <button id="invert" class="btn">反选</button>
+            <button id="clearSel" class="btn">清除</button>
+          </div>
+        </div>
+        <div class="devices" id="deviceList"></div>
+      </div>
+
+      <div class="panel">
+        <strong>批量操作</strong>
+        <div style="margin-top:8px" class="flex">
+          <button id="batchSend" class="btn primary">批量发送（立即）</button>
+          <button id="startStep" class="btn">开始单步模式</button>
+          <button id="nextStep" class="btn">下一步（发送下一台）</button>
+          <button id="stopStep" class="btn">停止单步</button>
+        </div>
+        <div style="margin-top:8px" class="flex">
+          <label class="small">单步延迟(ms)</label>
+          <input id="stepDelay" value="500" style="width:80px" />
+        </div>
+      </div>
+
+      <div class="panel">
+        <strong>基础配置</strong>
+        <div class="small">可为模拟器配置 WS / HTTP 地址</div>
+        <label>WebSocket</label>
+        <input id="wsUrl" value="ws://localhost:3000/ws" />
+        <label>HTTP 基础</label>
+        <input id="httpBase" value="http://localhost:3000/api" />
+        <div style="margin-top:8px" class="flex">
+          <button id="connectWs" class="btn">连接 WS</button>
+          <button id="disconnectWs" class="btn">断开 WS</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>消息详情 & 控制</strong>
+          <div class="small">选中设备会显示准备发送的字段，可编辑并单步发送</div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <div style="flex:1">
+            <label>当前目标 SN</label>
+            <input id="currentSn" />
+            <label style="margin-top:6px">消息类型</label>
+            <select id="msgType"><option value="heartbeat">heartbeat</option><option value="status">status</option><option value="telemetry">telemetry</option><option value="cmd_ack">cmd_ack</option></select>
+            <label style="margin-top:6px">消息载荷 (JSON)</label>
+            <textarea id="payload"></textarea>
+            <div style="margin-top:8px" class="flex">
+              <button id="sendOne" class="btn primary">发送当前</button>
+              <button id="preview" class="btn">预览最终消息</button>
+            </div>
+          </div>
+          <div style="width:360px">
+            <div class="small">发送日志</div>
+            <div class="log" id="log">就绪...</div>
+            <div style="margin-top:8px" class="small">WS 状态: <span id="wsState">未连接</span> &nbsp; Pending: <span id="pendingCount">0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const deviceListEl = document.getElementById('deviceList');
+    const logEl = document.getElementById('log');
+    const wsUrlEl = document.getElementById('wsUrl');
+    const httpBaseEl = document.getElementById('httpBase');
+    const wsStateEl = document.getElementById('wsState');
+    const pendingCountEl = document.getElementById('pendingCount');
+    const currentSnEl = document.getElementById('currentSn');
+    const payloadEl = document.getElementById('payload');
+    const msgTypeEl = document.getElementById('msgType');
+    const selectAllBtn = document.getElementById('selectAll');
+    const invertBtn = document.getElementById('invert');
+    const clearSelBtn = document.getElementById('clearSel');
+    const batchSendBtn = document.getElementById('batchSend');
+    const connectWsBtn = document.getElementById('connectWs');
+    const disconnectWsBtn = document.getElementById('disconnectWs');
+    const startStepBtn = document.getElementById('startStep');
+    const nextStepBtn = document.getElementById('nextStep');
+    const stopStepBtn = document.getElementById('stopStep');
+    const stepDelayEl = document.getElementById('stepDelay');
+    const sendOneBtn = document.getElementById('sendOne');
+
+    // 初始化 BroadcastChannel 用于跨窗口通信
+    let channel = null;
+    try { channel = new BroadcastChannel('guandan_devices'); } catch(e) { console.warn('BroadcastChannel not available'); }
+
+    // 生成 200 台模拟设备
+    const devices = Array.from({length:200}, (_,i)=>({ sn: `GD_SIM_${String(1000+i).padStart(4,'0')}`, name: `模拟设备 ${i+1}`, key: `KEY_${i+1}` }));
+    const checkboxMap = new Map();
+
+    let ws = null;
+    let pendingCount = 0;
+    let stepMode = false;
+    let stepIndex = 0;
+    let stepList = [];
+    let stepTimer = null;
+
+    function log(...args){ const t=new Date().toISOString(); logEl.textContent += '\n['+t+'] '+args.map(a=> typeof a==='object'?JSON.stringify(a):String(a)).join(' '); logEl.scrollTop = logEl.scrollHeight; }
+
+    function broadcastMessage(sn, type, payload){
+      if(!channel) return;
+      const msg = { id: `${Date.now()}_${Math.random()}`, timestamp: Date.now(), sn, type, payload };
+      try { channel.postMessage(msg); } catch(e) { console.warn('Broadcast failed', e); }
+    }
+
+    function renderDeviceList(){
+      deviceListEl.innerHTML = '';
+      devices.forEach(d=>{
+        const row = document.createElement('div'); row.className='device-row';
+        const cb = document.createElement('input'); cb.type='checkbox'; cb.dataset.sn=d.sn;
+        
+        const mainRow = document.createElement('div'); mainRow.style.display='flex'; mainRow.style.width='100%'; mainRow.style.alignItems='center'; mainRow.style.gap='8px';
+        
+        cb.addEventListener('change', ()=>{ if(cb.checked){ currentSnEl.value=d.sn; updatePayloadFromDevice(d); } });
+        checkboxMap.set(d.sn, cb);
+        
+        const span = document.createElement('div'); span.style.flex='1'; span.innerHTML=`<strong>${d.sn}</strong><div class='small'>${d.name}</div>`;
+        
+        const expandBtn = document.createElement('button'); expandBtn.className='btn'; expandBtn.textContent='展开'; expandBtn.style.fontSize='12px';
+        const isExpanded = row.classList.contains('expanded');
+        
+        expandBtn.addEventListener('click', (e)=>{ e.stopPropagation(); row.classList.toggle('expanded'); expandBtn.textContent = row.classList.contains('expanded')?'折叠':'展开'; renderControls(); });
+        
+        mainRow.appendChild(cb); mainRow.appendChild(span); mainRow.appendChild(expandBtn);
+        row.appendChild(mainRow);
+        
+        function renderControls(){
+          let ctrlDiv = row.querySelector('.device-controls');
+          if(!ctrlDiv){
+            ctrlDiv = document.createElement('div'); ctrlDiv.className='device-controls'; row.appendChild(ctrlDiv);
+          }
+          ctrlDiv.innerHTML = `
+            <button class="device-control-btn" onclick="sendCmd('${d.sn}', 'pause')">暂停</button>
+            <button class="device-control-btn" onclick="sendCmd('${d.sn}', 'start')">开始</button>
+            <select class="device-control-btn" onchange="sendCmd('${d.sn}', 'playerCount', this.value)"><option>选择人数</option><option value="4">4人</option><option value="8">8人</option></select>
+            <select class="device-control-btn" onchange="sendCmd('${d.sn}', 'deckCount', this.value)"><option>选择牌数</option><option value="1">1付牌</option><option value="2">2付牌</option></select>
+            <select class="device-control-btn" onchange="sendCmd('${d.sn}', 'difficulty', this.value)"><option>难易程度</option><option value="1">1级</option><option value="5">5级</option><option value="10">10级</option></select>
+            <button class="device-control-btn" onclick="sendCmd('${d.sn}', 'send_all')">发送命令</button>
+          `;
+        }
+        
+        if(row.classList.contains('expanded')) renderControls();
+        
+        deviceListEl.appendChild(row);
+      });
+    }
+
+    function updatePayloadFromDevice(device){
+      const defaultPayload = { sn: device.sn, ts: Date.now(), signal:-65, battery:80 };
+      payloadEl.value = JSON.stringify(defaultPayload, null, 2);
+    }
+
+    function getSelectedSNs(){ return devices.map(d=>d.sn).filter(sn=>checkboxMap.get(sn).checked); }
+
+    function connectWS(){ if(ws){ ws.close(); ws=null; } try{ ws=new WebSocket(wsUrlEl.value); ws.onopen=()=>{ wsStateEl.textContent='已连接'; log('WS 已连接'); }; ws.onclose=()=>{ wsStateEl.textContent='未连接'; log('WS 已断开'); }; ws.onmessage=(e)=>{ try{ log('收到WS', JSON.parse(e.data)); }catch{ log('收到WS', e.data); } }; ws.onerror=(e)=>{ log('WS 错误', e); }; }catch(e){ log('WS 连接失败', e); } }
+
+    function disconnectWS(){ if(ws){ ws.close(); ws=null; wsStateEl.textContent='未连接'; log('WS 手动断开'); } }
+
+    async function sendMessage(sn, type, payload){
+      const topic = `gd/${sn}/${type}`;
+      const msg = { topic, payload };
+      // WS 优先
+      if(ws && ws.readyState===1){ ws.send(JSON.stringify(msg)); log('WS 发送', msg); }
+      else { log('WS 未连接，记录 pending', msg); pendingCount++; pendingCountEl.textContent=String(pendingCount); }
+      // HTTP 上报
+      try{ const url = httpBaseEl.value.replace(/\/$/, '') + '/device/' + type; await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); log('HTTP 上报', url, payload); } catch(e){ log('HTTP 上报失败', e); }
+      // 广播给同源窗口
+      broadcastMessage(sn, type, payload);
+    }
+
+    async function batchSendNow(){
+      const sns = getSelectedSNs(); if(!sns.length){ alert('请先选择设备'); return; }
+      const type = msgTypeEl.value; for(const sn of sns){ const payload = buildPayloadFromTextarea(sn); await sendMessage(sn, type, payload); }
+    }
+
+    function buildPayloadFromTextarea(sn){
+      let base;
+      try{ base = JSON.parse(payloadEl.value); }catch(e){ base = { error: 'payload parse error' }; }
+      base.sn = sn; base.ts = Date.now(); return base;
+    }
+
+    // 单步模式控制
+    function startStepMode(){ const sns = getSelectedSNs(); if(!sns.length){ alert('请选择设备以进入单步模式'); return; } stepMode=true; stepList = sns; stepIndex=0; log('进入单步模式，目标数量:', stepList.length); }
+    async function nextStep(){ if(!stepMode) return; if(stepIndex>=stepList.length){ log('单步完成'); stopStepMode(); return; } const sn=stepList[stepIndex++]; const payload=buildPayloadFromTextarea(sn); await sendMessage(sn, msgTypeEl.value, payload); log('已单步发送', sn); }
+    function stopStepMode(){ stepMode=false; stepList=[]; stepIndex=0; if(stepTimer){ clearInterval(stepTimer); stepTimer=null; } log('停止单步模式'); }
+    function startAutoStep(){ const d = Math.max(50, parseInt(stepDelayEl.value)||500); if(stepTimer) clearInterval(stepTimer); stepTimer = setInterval(()=>{ if(stepMode) nextStep(); }, d); }
+
+    // 按钮绑定
+    selectAllBtn.addEventListener('click', ()=>{ devices.forEach(d=>checkboxMap.get(d.sn).checked=true); });
+    invertBtn.addEventListener('click', ()=>{ devices.forEach(d=>checkboxMap.get(d.sn).checked = !checkboxMap.get(d.sn).checked); });
+    clearSelBtn.addEventListener('click', ()=>{ devices.forEach(d=>checkboxMap.get(d.sn).checked=false); });
+    batchSendBtn.addEventListener('click', ()=>{ batchSendNow(); });
+    connectWsBtn.addEventListener('click', connectWS);
+    disconnectWsBtn.addEventListener('click', disconnectWS);
+    startStepBtn.addEventListener('click', ()=>{ startStepMode(); startAutoStep(); });
+    nextStepBtn.addEventListener('click', ()=>{ nextStep(); });
+    stopStepBtn.addEventListener('click', ()=>{ stopStepMode(); });
+    sendOneBtn.addEventListener('click', ()=>{ const sn=currentSnEl.value||prompt('请输入目标 SN'); if(!sn) return; const payload=buildPayloadFromTextarea(sn); sendMessage(sn, msgTypeEl.value, payload); });
+
+    // 选中设备时更新详情
+    currentSnEl.addEventListener('change', ()=>{ const sn=currentSnEl.value; const d=devices.find(x=>x.sn===sn); if(d) updatePayloadFromDevice(d); });
+    document.getElementById('preview').addEventListener('click', ()=>{ const sn=currentSnEl.value||'(未指定)'; log('预览消息', { topic:`gd/${sn}/${msgTypeEl.value}`, payload: buildPayloadFromTextarea(sn) }); });
+
+    // 初始化
+    renderDeviceList(); if(devices.length) updatePayloadFromDevice(devices[0]); pendingCountEl.textContent='0';
+    log('批量模拟器就绪（200 台）');
+
+    // 全局函数用于设备控制按钮
+    window.sendCmd = function(sn, cmd, val){ const d=devices.find(x=>x.sn===sn); if(!d)return; const payload = { sn, ts: Date.now(), signal:-65, battery:80 }; payload[cmd] = val||true; sendMessage(sn, 'command', payload); log('设备命令发送', sn, cmd, val); };
+  })();
+  </script>
+</body>
+</html>
+    fd.append('key', keyEl.value);
+    try{
+      const res = await fetch(endpoint, { method: 'POST', body: fd });
+      const text = await res.text();
+      log('Multipart Upload', endpoint, 'status', res.status, 'resp', text);
+    }catch(e){ log('Multipart 上传失败', e); }
+  }
+
+  async function uploadFileAsBase64(file){
+    const endpoint = uploadToEl.value;
+    const reader = new FileReader();
+    reader.onload = async ()=>{
+      const data = reader.result.split(',')[1];
+      const payload = buildPayload({ type: 'file_base64', filename: file.name, data });
+      await sendHTTP(endpoint, payload);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // 操作按钮
+  document.getElementById('connectWs').addEventListener('click', connectWS);
+  document.getElementById('disconnectWs').addEventListener('click', disconnectWS);
+  document.getElementById('sendHeartbeat').addEventListener('click', ()=>{
+    const topic = formatTopic('heartbeat');
+    const payload = buildPayload({ heartbeat: true, signal: parseInt(signalEl.value), battery: parseInt(batteryEl.value) });
+    sendWS(topic, payload);
+    sendHTTP('/device/heartbeat', payload);
+  });
+
+  document.getElementById('sendStatus').addEventListener('click', ()=>{
+    const topic = formatTopic('status');
+    const status = prompt('输入设备状态 (online|busy|error|offline)', 'online') || 'online';
+    const payload = buildPayload({ status });
+    sendWS(topic, payload);
+    sendHTTP('/device/status', payload);
+  });
+
+  document.getElementById('sendConfigAck').addEventListener('click', ()=>{
+    const topic = formatTopic('cmd_ack');
+    const payload = buildPayload({ cmd: 'CONFIG_UPDATE', result: 'ok' });
+    sendWS(topic, payload);
+    sendHTTP('/device/ack', payload);
+  });
+
+  document.getElementById('sendTelemetry').addEventListener('click', ()=>{
+    const topic = formatTopic('telemetry');
+    const payload = buildPayload({ cpu: Math.round(Math.random()*50)+10, mem: Math.round(Math.random()*60)+20, signal: parseInt(signalEl.value), battery: parseInt(batteryEl.value) });
+    sendWS(topic, payload);
+    sendHTTP('/device/telemetry', payload);
+  });
+
+  document.getElementById('sendStartDeal').addEventListener('click', ()=>{
+    const topic = formatTopic('deal');
+    const payload = buildPayload({ action: 'start', gameId: 'GAME_'+Date.now() });
+    sendWS(topic, payload);
+    sendHTTP('/device/deal/start', payload);
+  });
+  document.getElementById('sendStopDeal').addEventListener('click', ()=>{
+    const topic = formatTopic('deal');
+    const payload = buildPayload({ action: 'stop' });
+    sendWS(topic, payload);
+    sendHTTP('/device/deal/stop', payload);
+  });
+  document.getElementById('sendEmergency').addEventListener('click', ()=>{
+    const topic = formatTopic('emergency');
+    const payload = buildPayload({ action: 'emergency_stop', reason: 'manual_test' });
+    sendWS(topic, payload);
+    sendHTTP('/device/emergency', payload);
+  });
+
+  document.getElementById('uploadFile').addEventListener('click', ()=>{
+    const f = document.getElementById('fileInput').files[0];
+    if(!f){ alert('请选择文件'); return; }
+    uploadFileMultipart(f);
+  });
+  document.getElementById('uploadAsBase64').addEventListener('click', ()=>{
+    const f = document.getElementById('fileInput').files[0];
+    if(!f){ alert('请选择文件'); return; }
+    uploadFileAsBase64(f);
+  });
+
+  document.getElementById('startHbeat').addEventListener('click', ()=>{
+    const sec = Math.max(1, parseInt(hbIntervalEl.value)||30);
+    if(hbTimer) clearInterval(hbTimer);
+    hbTimer = setInterval(()=>{
+      const topic = formatTopic('heartbeat');
+      const payload = buildPayload({ heartbeat:true, signal: parseInt(signalEl.value), battery: parseInt(batteryEl.value) });
+      sendWS(topic, payload);
+      sendHTTP('/device/heartbeat', payload);
+    }, sec*1000);
+    log('已启动心跳，间隔(s):', sec);
+  });
+  document.getElementById('stopHbeat').addEventListener('click', ()=>{ if(hbTimer) clearInterval(hbTimer); hbTimer=null; log('已停止心跳'); });
+
+  uploadToEl.addEventListener('change', ()=> uploadEndpointSpan.textContent = uploadToEl.value);
+
+  // 初始化 pendingCount
+  pendingCountEl.textContent = String(pendingCount);
+
+  log('模拟器就绪');
+})();
+</script>
+</body>
+</html>

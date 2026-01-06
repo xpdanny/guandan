@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
 import UserManagement from './components/UserManagement';
+import Settings from './components/Settings';
 import { Device, AuthState, DeviceStatus, Group } from './types';
 import { generateMockDevices } from './services/mockData';
 import { ICONS } from './constants';
@@ -109,6 +110,8 @@ const App: React.FC = () => {
         />
       ) : activeTab === 'users' ? (
         <UserManagement />
+      ) : activeTab === 'settings' ? (
+        <Settings />
       ) : (
         <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] p-12 text-center">
           <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6">
